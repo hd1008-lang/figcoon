@@ -20,7 +20,5 @@ To get started with Figcoon, follow these steps:
 
 2. **Usage**: Once installed, open a Figma file. You can then run the plugin from `Plugins > Development > Figcoon`. The plugin UI will appear, allowing you to extract and consolidate design elements.
 
-## Contributing
 
-We welcome contributions! Please see the `CONTRIBUTING.md` for details on how to get involved. (Note: `CONTRIBUTING.md` is not yet created, but is a good placeholder.)
 
