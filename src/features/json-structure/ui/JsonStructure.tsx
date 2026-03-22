@@ -7,5 +7,5 @@ export function JsonStructure() {
   if (loading) return <div className="flex-1 flex items-center justify-center text-on-surface-variant text-sm">Loading...</div>;
   if (error)   return <div className="flex-1 flex items-center justify-center text-error text-sm">{error}</div>;
 
-  return <CodeCanvas content={content!} />;
+  return <CodeCanvas content={content!} lang="json" />;
 }

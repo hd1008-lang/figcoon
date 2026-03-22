@@ -242,7 +242,7 @@ async function getCSSFromNode(node: SceneNode): Promise<CSSProperties> {
 
     if (t.fontSize !== figma.mixed) css["font-size"] = `${t.fontSize}px`;
     if (t.fontName !== figma.mixed) {
-      css["font-family"] = `"${t.fontName.family}"`;
+      css["font-family"] = `${t.fontName.family}`;
       const weightMap: Record<string, number> = {
         Thin: 100,
         ExtraLight: 200,

@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/font/JetBrains_Mono/JetBrainsMono-VariableFont_wght.ttf") format("truetype");
+  font-weight: 100 800;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/font/JetBrains_Mono/JetBrainsMono-Italic-VariableFont_wght.ttf") format("truetype");
+  font-weight: 100 800;
+  font-style: italic;
+}
+
 @theme {
   /* Surface */
   --color-background:                #121221;
@@ -35,8 +49,8 @@
   --color-inverse-on-surface: #2f2f40;
 
   /* Font */
-  --font-sans: "Inter", sans-serif;
-  --font-mono: monospace;
+  --font-sans: "JetBrains Mono", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 
   /* Animation */
   --animate-blink: blink 1s step-start infinite;

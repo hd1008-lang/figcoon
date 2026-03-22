@@ -367,7 +367,6 @@ export async function buildFlatCSS(root: SceneNode): Promise<string> {
       if (styleName) {
         const colorIdx = cssLines.findIndex((l) => l.startsWith("color:"));
         if (colorIdx !== -1) {
-          // Chèn comment ngay trước dòng color
           cssLines.splice(colorIdx, 0, `/* ${styleName} */`);
         }
       }
