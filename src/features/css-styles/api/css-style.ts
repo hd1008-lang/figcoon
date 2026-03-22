@@ -17,7 +17,7 @@ function rgbaColor(r: number, g: number, b: number, a: number): string {
 }
 
 function formatNumber(n: number): string {
-  // Giữ tối đa 2 chữ số thập phân, bỏ .00
+
   const fixed = +n.toFixed(2);
   return fixed % 1 === 0 ? `${fixed}` : `${fixed}`;
 }
@@ -338,7 +338,7 @@ function buildNodeCSSLines(node: SceneNode): string[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET COLOR STYLE NAME (comment trên color)
+// GET COLOR STYLE NAME
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getColorStyleName(node: SceneNode): Promise<string | null> {

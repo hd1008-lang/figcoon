@@ -14,9 +14,12 @@ export function useCssStructure() {
     loading: true,
     error: null,
   });
-
-  useEffect(() => {
+  const handleGetCssStructure = (): void => {
+    setState({ ...state, loading: true });
     getCssStructure();
+  };
+  useEffect(() => {
+    getCssStructure()
     window.onmessage = (event) => {
       const message = event.data.pluginMessage;
       if (message.type === COMMAND.receive_result) {
@@ -30,5 +33,5 @@ export function useCssStructure() {
     };
   }, []);
 
-  return state;
+  return { state, handleGetCssStructure };
 }

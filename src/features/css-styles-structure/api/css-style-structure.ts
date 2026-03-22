@@ -341,7 +341,7 @@ async function getCSSFromNode(node: SceneNode): Promise<CSSProperties> {
 }
 
 // ─────────────────────────────────────────────
-// Traverse toàn bộ group
+// Traverse all group
 // ─────────────────────────────────────────────
 
 export async function extractGroupCSS(
@@ -368,7 +368,7 @@ export async function extractGroupCSS(
 }
 
 // ─────────────────────────────────────────────
-// Format output thành chuỗi CSS class
+// Format output CSS class
 // ─────────────────────────────────────────────
 
 export function formatAsCSS(result: NodeCSSResult): string {
@@ -386,7 +386,6 @@ export function formatAsCSS(result: NodeCSSResult): string {
       return lines.join("\n");
     }
 
-    // Dùng trong formatAsCSS:
     const props = formatProps(node.css);
 
     if (props) {
@@ -403,41 +402,3 @@ export function formatAsCSS(result: NodeCSSResult): string {
   return lines.join("\n");
 }
 
-// ─────────────────────────────────────────────
-// Entry point
-// ─────────────────────────────────────────────
-
-// async function main() {
-//   const selection = figma.currentPage.selection;
-
-//   if (selection.length === 0) {
-//     figma.notify("⚠️ Vui lòng chọn một group hoặc frame.");
-//     figma.closePlugin();
-//     return;
-//   }
-
-//   const target = selection[0];
-//   console.log(`Extracting CSS from: ${target.name} (${target.type})`);
-
-//   const result = await extractGroupCSS(target);
-//   const cssString = formatAsCSS(result);
-
-//   // Gửi lên UI
-//   figma.ui.postMessage({
-//     type: "CSS_RESULT",
-//     json: result, // dạng object (dễ xử lý tiếp)
-//     css: cssString, // dạng CSS string (dễ copy)
-//   });
-
-//   // Hoặc log ra console khi dev
-//   console.log("=== JSON ===");
-//   console.log(JSON.stringify(result, null, 2));
-//   console.log("=== CSS ===");
-//   console.log(cssString);
-// }
-
-// main().catch((err) => {
-//   console.error(err);
-//   figma.notify(`❌ Lỗi: ${err.message}`);
-//   figma.closePlugin();
-// });

@@ -14,7 +14,10 @@ export function useJsonStructure() {
     loading: true,
     error: null,
   });
-
+  const handleGetJsonStructure = (): void => {
+    setState({ ...state, loading: true });
+    getJsonStructure();
+  };
   useEffect(() => {
     getJsonStructure();
     window.onmessage = (event) => {
@@ -30,5 +33,5 @@ export function useJsonStructure() {
     };
   }, []);
 
-  return state;
+  return { state, handleGetJsonStructure };
 }
