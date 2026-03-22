@@ -20,7 +20,12 @@ export function useJsonStructure() {
     window.onmessage = (event) => {
       const message = event.data.pluginMessage;
       if (message.type === COMMAND.receive_result) {
-        setState({ content: message.data, loading: false, error: null });
+        const dataJson = JSON.parse(message.data);
+        setState({
+          content: message.data,
+          loading: false,
+          error: dataJson.error || null,
+        });
       }
     };
   }, []);
