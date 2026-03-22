@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && esbuild lib/code.ts --bundle --target=es2019 --outfile=dist/code.js",
+    "build": "tsc -b && vite build && esbuild src/shared/lib/figma/code.ts --bundle --target=es2019 --outfile=dist/code.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
