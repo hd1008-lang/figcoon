@@ -3,7 +3,7 @@ import { createHighlighter } from "shiki";
 export type SupportedLang = "css" | "json" | "typescript";
 
 const highlighterPromise = createHighlighter({
-  themes: ["vitesse-dark"],
+  themes: ["dracula"],
   langs: ["css", "json", "typescript"],
 });
 
@@ -17,7 +17,7 @@ export async function highlight(
   return highlighter
     .codeToHtml(code, {
       lang,
-      theme: "vitesse-dark",
+      theme: "dracula",
     })
     .replace(/<span[^>]*>:root<\/span><span[^>]*> {<\/span>\n/, "")
     .replace(/\n<span[^>]*>}<\/span>/, "");
