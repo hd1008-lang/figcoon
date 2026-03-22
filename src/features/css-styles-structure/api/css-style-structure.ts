@@ -260,7 +260,35 @@ async function getCSSFromNode(node: SceneNode): Promise<CSSProperties> {
         css["font-style"] = "italic";
       }
     }
+    // ── font-variant-numeric ───────────────────
+    if ("numberCase" in t || "numberSpacing" in t) {
+      const variants: string[] = [];
 
+      if ("numberCase" in t && t.numberCase !== figma.mixed) {
+        const nc = t.numberCase as string;
+        if (nc === "LINING_NUMS") variants.push("lining-nums");
+        if (nc === "OLDSTYLE_NUMS") variants.push("oldstyle-nums");
+      }
+
+      if ("numberSpacing" in t && t.numberSpacing !== figma.mixed) {
+        const ns = t.numberSpacing as string;
+        if (ns === "PROPORTIONAL_NUM") variants.push("proportional-nums");
+        if (ns === "TABULAR_NUM") variants.push("tabular-nums");
+      }
+
+      if (variants.length > 0) css["font-variant-numeric"] = variants.join(" ");
+    }
+    // ── font-feature-settings ──────────────────
+    if (t.openTypeFeatures !== figma.mixed) {
+      const features = t.openTypeFeatures as Record<OpenTypeFeature, boolean>;
+      const entries = Object.entries(features) as [OpenTypeFeature, boolean][];
+      const active = entries.filter(([, on]) => on);
+      if (active.length > 0) {
+        css["font-feature-settings"] = active
+          .map(([tag, on]) => `'${tag.toLocaleLowerCase()}' ${on ? 'on' : 'off'}`)
+          .join(", ");
+      }
+    }
     if (t.textAlignHorizontal) {
       css["text-align"] = t.textAlignHorizontal.toLowerCase();
     }

@@ -248,6 +248,14 @@ function buildNodeCSSLines(node: SceneNode): string[] {
 
     if (t.fontName !== figma.mixed) {
       const fn = t.fontName as FontName;
+      const features = t.openTypeFeatures as Record<OpenTypeFeature, boolean>;
+      const entries = Object.entries(features) as [OpenTypeFeature, boolean][];
+      if (entries.length > 0) {
+        add(
+          "font-feature-settings",
+          entries.map(([tag, on]) => `'${tag.toLocaleLowerCase()}' ${on ? 'on' : 'off'}`).join(", "),
+        );
+      }
       add("font-family", `'${fn.family}'`);
       add(
         "font-style",

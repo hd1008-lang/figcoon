@@ -48,7 +48,7 @@ interface VisualStyle {
   backdropBlur?: number;
 }
 
-interface CustomTextStyle  {
+interface CustomTextStyle {
   fontFamily: string;
   fontSize: number;
   fontWeight: number | string;
@@ -59,12 +59,14 @@ interface CustomTextStyle  {
   letterSpacing?: string;
   textDecoration?: string;
   textTransform?: string;
+  fontVariantNumeric?: string;
+  fontFeatureSettings: string;
 }
 
 interface TextContent {
   raw: string;
   truncated: string;
-  style: CustomTextStyle ;
+  style: CustomTextStyle;
 }
 
 interface LayoutNode {
@@ -156,7 +158,8 @@ function inferRole(node: SceneNode): NodeRole {
 
   // TEXT node — classify by font size
   if (node.type === "TEXT") {
-    const fontSize = node.fontSize !== figma.mixed ? (node.fontSize as number) : 14;
+    const fontSize =
+      node.fontSize !== figma.mixed ? (node.fontSize as number) : 14;
     if (fontSize >= 40) return "text-heading";
     if (fontSize >= 24) return "text-heading";
     if (fontSize >= 16) return "text-body";
@@ -169,14 +172,19 @@ function inferRole(node: SceneNode): NodeRole {
 
   // Icon — small vector or frame
   if (
-    (node.type === "VECTOR" || node.type === "BOOLEAN_OPERATION" || node.type === "STAR") &&
-    w <= 48 && h <= 48
-  ) return "icon";
+    (node.type === "VECTOR" ||
+      node.type === "BOOLEAN_OPERATION" ||
+      node.type === "STAR") &&
+    w <= 48 &&
+    h <= 48
+  )
+    return "icon";
 
   // Image — rectangle with image fill
   if ("fills" in node && node.fills !== figma.mixed) {
     const fills = node.fills as Paint[];
-    if (fills.some((f) => f.type === "IMAGE" && f.visible !== false)) return "image";
+    if (fills.some((f) => f.type === "IMAGE" && f.visible !== false))
+      return "image";
   }
 
   // Name-based hints (highest priority after type checks)
@@ -184,7 +192,8 @@ function inferRole(node: SceneNode): NodeRole {
   if (/\b(icon)\b/.test(name)) return "icon";
   if (/\b(card)\b/.test(name)) return "card";
   if (/\b(divider|separator|line|hr)\b/.test(name)) return "divider";
-  if (/\b(section|hero|banner|header|footer|navbar|nav)\b/.test(name)) return "section";
+  if (/\b(section|hero|banner|header|footer|navbar|nav)\b/.test(name))
+    return "section";
   if (/\b(image|img|photo|thumbnail|avatar)\b/.test(name)) return "image";
 
   // Frame-based heuristics
@@ -197,7 +206,8 @@ function inferRole(node: SceneNode): NodeRole {
     // Small frames with fills → likely button or card
     if (w <= 300 && h <= 60 && "fills" in node) {
       const fills = node.fills !== figma.mixed ? (node.fills as Paint[]) : [];
-      if (fills.some((f) => f.visible !== false && f.type === "SOLID")) return "button";
+      if (fills.some((f) => f.visible !== false && f.type === "SOLID"))
+        return "button";
     }
     if (w <= 500 && h <= 400) return "card";
     return w >= 600 ? "section" : "container";
@@ -235,7 +245,9 @@ function extractStyle(node: SceneNode): VisualStyle {
   if ("fills" in node && node.fills !== figma.mixed) {
     const fills = (node.fills as Paint[]).filter((f) => f.visible !== false);
     if (fills.length > 0) {
-      const parsed = fills.map(parsePaintToString).filter((s): s is string => s !== null);
+      const parsed = fills
+        .map(parsePaintToString)
+        .filter((s): s is string => s !== null);
       if (parsed.length > 0) {
         style.background = parsed[parsed.length - 1]; // top-most fill
       }
@@ -259,10 +271,12 @@ function extractStyle(node: SceneNode): VisualStyle {
   // Effects
   if ("effects" in node && node.effects.length > 0) {
     const dropShadows = node.effects.filter(
-      (e): e is DropShadowEffect => e.type === "DROP_SHADOW" && (e.visible ?? true)
+      (e): e is DropShadowEffect =>
+        e.type === "DROP_SHADOW" && (e.visible ?? true),
     );
     const innerShadows = node.effects.filter(
-      (e): e is InnerShadowEffect => e.type === "INNER_SHADOW" && (e.visible ?? true)
+      (e): e is InnerShadowEffect =>
+        e.type === "INNER_SHADOW" && (e.visible ?? true),
     );
 
     const allShadows = [
@@ -278,12 +292,13 @@ function extractStyle(node: SceneNode): VisualStyle {
     if (allShadows.length > 0) style.shadow = allShadows.join(", ");
 
     const layerBlur = node.effects.find(
-      (e): e is BlurEffect => e.type === "LAYER_BLUR" && (e.visible ?? true)
+      (e): e is BlurEffect => e.type === "LAYER_BLUR" && (e.visible ?? true),
     );
     if (layerBlur) style.blur = layerBlur.radius;
 
     const bgBlur = node.effects.find(
-      (e): e is BlurEffect => e.type === "BACKGROUND_BLUR" && (e.visible ?? true)
+      (e): e is BlurEffect =>
+        e.type === "BACKGROUND_BLUR" && (e.visible ?? true),
     );
     if (bgBlur) style.backdropBlur = bgBlur.radius;
   }
@@ -322,7 +337,8 @@ function extractFlexLayout(node: SceneNode): FlexLayout | undefined {
       bottom: n.paddingBottom,
       left: n.paddingLeft,
     },
-    justifyContent: justifyMap[n.primaryAxisAlignItems] ?? n.primaryAxisAlignItems,
+    justifyContent:
+      justifyMap[n.primaryAxisAlignItems] ?? n.primaryAxisAlignItems,
     alignItems: alignMap[n.counterAxisAlignItems] ?? n.counterAxisAlignItems,
     wrap: n.layoutWrap === "WRAP",
     overflow: n.clipsContent ? "hidden" : "visible",
@@ -338,12 +354,22 @@ function extractTextContent(node: TextNode): TextContent {
   const truncated = raw.length > 100 ? raw.slice(0, 100) + "…" : raw;
 
   const fontWeightMap: Record<string, number> = {
-    Thin: 100, ExtraLight: 200, Light: 300, Regular: 400,
-    Medium: 500, SemiBold: 600, Bold: 700, ExtraBold: 800, Black: 900,
+    Thin: 100,
+    ExtraLight: 200,
+    Light: 300,
+    Regular: 400,
+    Medium: 500,
+    SemiBold: 600,
+    Bold: 700,
+    ExtraBold: 800,
+    Black: 900,
   };
 
   // Font
-  const fontName = node.fontName !== figma.mixed ? node.fontName as FontName : { family: "Unknown", style: "Regular" };
+  const fontName =
+    node.fontName !== figma.mixed
+      ? (node.fontName as FontName)
+      : { family: "Unknown", style: "Regular" };
   const styleKey = fontName.style.replace(/\s/g, "").replace(/Italic/i, "");
   const fontWeight: number | string = fontWeightMap[styleKey] ?? 400;
   const isItalic = fontName.style.toLowerCase().includes("italic");
@@ -352,7 +378,9 @@ function extractTextContent(node: TextNode): TextContent {
   let color = "#000000";
   if (node.fills !== figma.mixed) {
     const fills = node.fills as Paint[];
-    const solidFill = fills.find((f) => f.visible !== false && f.type === "SOLID") as SolidPaint | undefined;
+    const solidFill = fills.find(
+      (f) => f.visible !== false && f.type === "SOLID",
+    ) as SolidPaint | undefined;
     if (solidFill) {
       const { r, g, b } = solidFill.color;
       color = rgbaString(r, g, b, solidFill.opacity ?? 1);
@@ -373,7 +401,8 @@ function extractTextContent(node: TextNode): TextContent {
   if (node.letterSpacing !== figma.mixed) {
     const ls = node.letterSpacing as LetterSpacing;
     if (ls.value !== 0) {
-      letterSpacing = ls.unit === "PIXELS" ? `${ls.value}px` : `${round2(ls.value / 100)}em`;
+      letterSpacing =
+        ls.unit === "PIXELS" ? `${ls.value}px` : `${round2(ls.value / 100)}em`;
     }
   }
 
@@ -381,24 +410,30 @@ function extractTextContent(node: TextNode): TextContent {
   let textDecoration: string | undefined;
   if (node.textDecoration !== figma.mixed) {
     if (node.textDecoration === "UNDERLINE") textDecoration = "underline";
-    else if (node.textDecoration === "STRIKETHROUGH") textDecoration = "line-through";
+    else if (node.textDecoration === "STRIKETHROUGH")
+      textDecoration = "line-through";
   }
 
   // Text transform
   let textTransform: string | undefined;
   if (node.textCase !== figma.mixed) {
     const caseMap: Record<string, string> = {
-      UPPER: "uppercase", LOWER: "lowercase", TITLE: "capitalize",
+      UPPER: "uppercase",
+      LOWER: "lowercase",
+      TITLE: "capitalize",
     };
     textTransform = caseMap[node.textCase as string];
   }
 
-  const textStyle: CustomTextStyle  = {
+
+  const textStyle: CustomTextStyle = {
     fontFamily: fontName.family,
     fontSize: node.fontSize !== figma.mixed ? (node.fontSize as number) : 14,
     fontWeight,
     color,
     align: node.textAlignHorizontal?.toLowerCase() ?? "left",
+    fontFeatureSettings: '',
+    fontVariantNumeric: ''
   };
 
   if (isItalic) textStyle.fontStyle = "italic";
@@ -406,7 +441,38 @@ function extractTextContent(node: TextNode): TextContent {
   if (letterSpacing) textStyle.letterSpacing = letterSpacing;
   if (textDecoration) textStyle.textDecoration = textDecoration;
   if (textTransform) textStyle.textTransform = textTransform;
+  // ── font-feature-settings ──────────────────
+  if ("openTypeFeatures" in node) {
+    const features = node.openTypeFeatures as Record<OpenTypeFeature, boolean>;
+    const entries = Object.entries(features) as [OpenTypeFeature, boolean][];
+    const active = entries.filter(([, on]) => on);
+    if (active.length > 0) {
+      textStyle.fontFeatureSettings = active
+        .map(([tag, on]) => `'${tag.toLowerCase()}' ${on ? 'on' : 'off'}`)
+        .join(", ");
+    }
+  }
 
+  // ── font-variant-numeric ───────────────────
+  if ("numberCase" in node || "numberSpacing" in node) {
+    const variants: string[] = [];
+
+    if ("numberCase" in node && node.numberCase !== figma.mixed) {
+      const nc = node.numberCase as string;
+      if (nc === "LINING_NUMS") variants.push("lining-nums");
+      if (nc === "OLDSTYLE_NUMS") variants.push("oldstyle-nums");
+    }
+
+    if ("numberSpacing" in node && node.numberSpacing !== figma.mixed) {
+      const ns = node.numberSpacing as string;
+      if (ns === "PROPORTIONAL_NUM") variants.push("proportional-nums");
+      if (ns === "TABULAR_NUM") variants.push("tabular-nums");
+    }
+
+    if (variants.length > 0) {
+      textStyle.fontVariantNumeric = variants.join(" ");
+    }
+  }
   return { raw, truncated, style: textStyle };
 }
 
@@ -488,8 +554,6 @@ export function extractLayoutSummary(node: SceneNode): LayoutSummary {
 // ─────────────────────────────────────────────────────────────────────────────
 // PLUGIN MAIN
 // ─────────────────────────────────────────────────────────────────────────────
-
-
 
 // main().catch((err) => {
 //   console.error(err);
