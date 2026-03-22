@@ -14,7 +14,10 @@ export function useCssLayout() {
     loading: true,
     error: null,
   });
-
+  const handleGetCssLayout = (): void => {
+    setState({ ...state, loading: true });
+    getCssLayout();
+  };
   useEffect(() => {
     getCssLayout();
     window.onmessage = (event) => {
@@ -26,5 +29,5 @@ export function useCssLayout() {
     };
   }, []);
 
-  return state;
+  return { state, handleGetCssLayout };
 }

@@ -551,12 +551,3 @@ export function extractLayoutSummary(node: SceneNode): LayoutSummary {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PLUGIN MAIN
-// ─────────────────────────────────────────────────────────────────────────────
-
-// main().catch((err) => {
-//   console.error(err);
-//   figma.notify(`❌ Lỗi: ${(err as Error).message}`);
-//   figma.closePlugin();
-// });

@@ -14,7 +14,10 @@ export function useVariables() {
     loading: true,
     error: null,
   });
-
+ const handleGetVariables = (): void => {
+    setState({ ...state, loading: true });
+    getVariables();
+  };
   useEffect(() => {
     getVariables();
     window.onmessage = (event) => {
@@ -25,5 +28,5 @@ export function useVariables() {
     };
   }, []);
 
-  return state;
+  return { state, handleGetVariables };
 }

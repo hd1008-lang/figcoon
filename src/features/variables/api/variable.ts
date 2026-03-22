@@ -34,7 +34,7 @@ interface CompactDesignTokens {
     totalStyles: number;
   };
   /**
-   * Luôn nest theo mode — nhất quán cho mọi collection:
+   * 
    *
    * {
    *   "GAP": {
@@ -88,7 +88,7 @@ function parseFontWeight(style: string): number | string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RESOLVE VARIABLE VALUE — đệ quy resolve alias
+// RESOLVE VARIABLE VALUE 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function resolveValue(
@@ -98,9 +98,9 @@ function resolveValue(
   defaultModeId: string,
   depth: number = 0
 ): TokenValue {
-  if (depth > 10) return null; // tránh vòng lặp vô tận
+  if (depth > 10) return null; 
 
-  // Alias → resolve sang giá trị thực
+  // Alias 
   if (
     typeof raw === "object" &&
     raw !== null &&
@@ -111,7 +111,6 @@ function resolveValue(
     const target = variableMap.get(alias.id);
     if (!target) return null;
 
-    // Ưu tiên lấy từ default mode của target, fallback về mode đầu tiên
     const targetRaw =
       target.valuesByMode[defaultModeId] ??
       Object.values(target.valuesByMode)[0];
@@ -127,7 +126,7 @@ function resolveValue(
     return rgbaColor(c.r, c.g, c.b, c.a);
   }
 
-  // FLOAT — giữ số nguyên nếu không có thập phân
+  // FLOAT
   if (typeof raw === "number") {
     return raw % 1 === 0 ? raw : +raw.toFixed(4);
   }
@@ -152,12 +151,10 @@ async function extractVariablesCompact(): Promise<CompactDesignTokens["variables
   for (const collection of collections) {
     const collectionResult: CollectionTokenMap = {};
 
-    // Khởi tạo object rỗng cho từng mode
     for (const mode of collection.modes) {
       collectionResult[mode.name] = {};
     }
 
-    // Fill giá trị từng variable theo từng mode
     for (const varId of collection.variableIds) {
       const variable = variableMap.get(varId);
       if (!variable) continue;
@@ -353,7 +350,7 @@ export async function extractDesignTokens(): Promise<CompactDesignTokens> {
     extractGridCompact(),
   ]);
 
-  // Đếm tổng variables (đếm theo mode đầu tiên để tránh nhân đôi)
+  
   let totalVariables = 0;
   for (const collection of Object.values(variables)) {
     const firstMode = Object.values(collection)[0];

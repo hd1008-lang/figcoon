@@ -21,18 +21,29 @@ figma.ui.resize(600, 600);
 // Calls to "parent.postMessage" from within the HTML page will trigger this
 // callback. The callback will be passed the "pluginMessage" property of the
 // posted message.
+type CommandHandler = (target?: SceneNode) => Promise<unknown>;
+
+const requiresSelection: Set<string> = new Set([
+  COMMAND.get_json_structure,
+  COMMAND.get_css_structure,
+  COMMAND.get_css_layout,
+]);
+
+const commandHandlers: Record<string, CommandHandler> = {
+  [COMMAND.get_variables]: () => extractDesignTokens(),
+  [COMMAND.get_json_structure]: (target) => Promise.resolve(extractLayoutSummary(target!)),
+  [COMMAND.get_css_structure]: (target) => extractGroupCSS(target!),
+  [COMMAND.get_css_layout]: (target) => buildFlatCSS(target!),
+};
+
 figma.ui.onmessage = async (msg: { type: string; count: number }) => {
-  // One way of distinguishing between different types of messages sent from
-  // your HTML page is to use an object with a "type" property like this.
-  if (msg.type === COMMAND.get_variables) {
-    const tokens = await extractDesignTokens();
-    figma.ui.postMessage({
-      type: COMMAND.receive_result,
-      data: JSON.stringify(tokens, null, 2),
-    });
-  }
-  if (msg.type === COMMAND.get_json_structure) {
-    const target = figma.currentPage.selection[0];
+  const handler = commandHandlers[msg.type];
+  if (!handler) return;
+
+  let target: SceneNode | undefined;
+
+  if (requiresSelection.has(msg.type)) {
+    target = figma.currentPage.selection[0];
     if (!target) {
       figma.ui.postMessage({
         type: COMMAND.receive_result,
@@ -40,40 +51,11 @@ figma.ui.onmessage = async (msg: { type: string; count: number }) => {
       });
       return;
     }
-    const data = await extractLayoutSummary(target);
-    figma.ui.postMessage({
-      type: COMMAND.receive_result,
-      data: JSON.stringify(data, null, 2),
-    });
   }
-  if (msg.type === COMMAND.get_css_structure) {
-    const target = figma.currentPage.selection[0];
-    if (!target) {
-      figma.ui.postMessage({
-        type: COMMAND.receive_result,
-        data: JSON.stringify({ error: "No target selected" }, null, 2),
-      });
-      return;
-    }
-    const data = await extractGroupCSS(target);
-    figma.ui.postMessage({
-      type: COMMAND.receive_result,
-      data: JSON.stringify(data, null, 2),
-    });
-  }
-  if (msg.type === COMMAND.get_css_layout) {
-    const target = figma.currentPage.selection[0];
-    if (!target) {
-      figma.ui.postMessage({
-        type: COMMAND.receive_result,
-        data: JSON.stringify({ error: "No target selected" }, null, 2),
-      });
-      return;
-    }
-    const data = await buildFlatCSS(target);
-    figma.ui.postMessage({
-      type: COMMAND.receive_result,
-      data: JSON.stringify(data, null, 2),
-    });
-  }
+
+  const data = await handler(target);
+  figma.ui.postMessage({
+    type: COMMAND.receive_result,
+    data: JSON.stringify(data, null, 2),
+  });
 };
