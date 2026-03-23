@@ -25,12 +25,12 @@ interface BoundingBox {
 
 interface FlexLayout {
   direction: "row" | "column";
-  gap: number;
+  gap: string;
   padding: {
-    top: number;
-    right: number;
-    bottom: number;
-    left: number;
+    top: string;
+    right: string;
+    bottom: string;
+    left: string;
   };
   alignItems: string;
   justifyContent: string;
@@ -41,16 +41,16 @@ interface FlexLayout {
 interface VisualStyle {
   background?: string;
   border?: string;
-  borderRadius?: number | string;
-  opacity?: number;
+  borderRadius?: string;
+  opacity?: string;
   shadow?: string;
-  blur?: number;
-  backdropBlur?: number;
+  blur?: string;
+  backdropBlur?: string;
 }
 
 interface CustomTextStyle {
   fontFamily: string;
-  fontSize: number;
+  fontSize: string;
   fontWeight: number | string;
   fontStyle?: "italic" | "normal";
   color: string;
@@ -147,6 +147,85 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Gắn comment variable vào cuối value string nếu có */
+function withVar(value: string, varName: string | null): string {
+  if (!varName) return value;
+  return `${value} /* ${varName} */`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VARIABLE RESOLUTION HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function resolveVariableName(
+  alias: VariableAlias | VariableAlias[] | undefined
+): Promise<string | null> {
+  if (!alias) return null;
+  const id = Array.isArray(alias)
+    ? alias[0]?.id
+    : (alias as VariableAlias).id;
+  if (!id) return null;
+  const variable = await figma.variables.getVariableByIdAsync(id);
+  return variable ? variable.name : null;
+}
+
+async function getScalarVar(
+  node: SceneNode,
+  field: string
+): Promise<string | null> {
+  if (!("boundVariables" in node) || !node.boundVariables) return null;
+  const alias = (node.boundVariables as Record<string, VariableAlias | VariableAlias[]>)[field];
+  return resolveVariableName(alias as VariableAlias | undefined);
+}
+
+async function getFillVar(
+  node: SceneNode,
+  fillIndex: number
+): Promise<string | null> {
+  if (!("boundVariables" in node) || !node.boundVariables) return null;
+
+  const fillsAliases = (node.boundVariables as Record<string, VariableAlias | VariableAlias[]>)["fills"];
+  if (Array.isArray(fillsAliases) && fillsAliases[fillIndex]) {
+    const name = await resolveVariableName(fillsAliases[fillIndex]);
+    if (name) return name;
+  }
+
+  if ("fills" in node && node.fills !== figma.mixed) {
+    const paint = (node.fills as Paint[])[fillIndex] as Paint & {
+      boundVariables?: Record<string, VariableAlias>;
+    };
+    if (paint?.boundVariables?.color) {
+      return resolveVariableName(paint.boundVariables.color);
+    }
+  }
+
+  return null;
+}
+
+async function getStrokeVar(
+  node: SceneNode,
+  strokeIndex: number
+): Promise<string | null> {
+  if (!("boundVariables" in node) || !node.boundVariables) return null;
+
+  const strokesAliases = (node.boundVariables as Record<string, VariableAlias | VariableAlias[]>)["strokes"];
+  if (Array.isArray(strokesAliases) && strokesAliases[strokeIndex]) {
+    const name = await resolveVariableName(strokesAliases[strokeIndex]);
+    if (name) return name;
+  }
+
+  if ("strokes" in node) {
+    const paint = node.strokes[strokeIndex] as Paint & {
+      boundVariables?: Record<string, VariableAlias>;
+    };
+    if (paint?.boundVariables?.color) {
+      return resolveVariableName(paint.boundVariables.color);
+    }
+  }
+
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INFER ROLE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,7 +235,6 @@ function inferRole(node: SceneNode): NodeRole {
   const w = "width" in node ? node.width : 0;
   const h = "height" in node ? node.height : 0;
 
-  // TEXT node — classify by font size
   if (node.type === "TEXT") {
     const fontSize =
       node.fontSize !== figma.mixed ? (node.fontSize as number) : 14;
@@ -167,10 +245,8 @@ function inferRole(node: SceneNode): NodeRole {
     return "text-caption";
   }
 
-  // Divider — very thin rectangle
   if (node.type === "RECTANGLE" && (h <= 4 || w <= 4)) return "divider";
 
-  // Icon — small vector or frame
   if (
     (node.type === "VECTOR" ||
       node.type === "BOOLEAN_OPERATION" ||
@@ -180,14 +256,12 @@ function inferRole(node: SceneNode): NodeRole {
   )
     return "icon";
 
-  // Image — rectangle with image fill
   if ("fills" in node && node.fills !== figma.mixed) {
     const fills = node.fills as Paint[];
     if (fills.some((f) => f.type === "IMAGE" && f.visible !== false))
       return "image";
   }
 
-  // Name-based hints (highest priority after type checks)
   if (/\b(btn|button|cta)\b/.test(name)) return "button";
   if (/\b(icon)\b/.test(name)) return "icon";
   if (/\b(card)\b/.test(name)) return "card";
@@ -196,14 +270,12 @@ function inferRole(node: SceneNode): NodeRole {
     return "section";
   if (/\b(image|img|photo|thumbnail|avatar)\b/.test(name)) return "image";
 
-  // Frame-based heuristics
   if (
     node.type === "FRAME" ||
     node.type === "COMPONENT" ||
     node.type === "INSTANCE" ||
     node.type === "GROUP"
   ) {
-    // Small frames with fills → likely button or card
     if (w <= 300 && h <= 60 && "fills" in node) {
       const fills = node.fills !== figma.mixed ? (node.fills as Paint[]) : [];
       if (fills.some((f) => f.visible !== false && f.type === "SOLID"))
@@ -220,24 +292,31 @@ function inferRole(node: SceneNode): NodeRole {
 // EXTRACT VISUAL STYLE
 // ─────────────────────────────────────────────────────────────────────────────
 
-function extractStyle(node: SceneNode): VisualStyle {
+async function extractStyle(node: SceneNode): Promise<VisualStyle> {
   const style: VisualStyle = {};
 
   // Opacity
   if ("opacity" in node && node.opacity !== 1) {
-    style.opacity = round2(node.opacity);
+    const v = await getScalarVar(node, "opacity");
+    style.opacity = withVar(String(round2(node.opacity)), v);
   }
 
   // Border radius
   if ("cornerRadius" in node && node.cornerRadius !== undefined) {
     if (node.cornerRadius !== figma.mixed) {
       if ((node.cornerRadius as number) > 0) {
-        style.borderRadius = node.cornerRadius as number;
+        const v = await getScalarVar(node, "cornerRadius");
+        style.borderRadius = withVar(`${node.cornerRadius as number}px`, v);
       }
     } else {
-      // Mixed corner radius — cast to access individual corners
       const n = node as RectangleNode;
-      style.borderRadius = `${n.topLeftRadius}px ${n.topRightRadius}px ${n.bottomRightRadius}px ${n.bottomLeftRadius}px`;
+      const value = `${n.topLeftRadius}px ${n.topRightRadius}px ${n.bottomRightRadius}px ${n.bottomLeftRadius}px`;
+      const tlV = await getScalarVar(node, "topLeftRadius");
+      const trV = await getScalarVar(node, "topRightRadius");
+      const brV = await getScalarVar(node, "bottomRightRadius");
+      const blV = await getScalarVar(node, "bottomLeftRadius");
+      const vars = [tlV, trV, brV, blV].filter(Boolean).join(", ");
+      style.borderRadius = withVar(value, vars || null);
     }
   }
 
@@ -249,22 +328,33 @@ function extractStyle(node: SceneNode): VisualStyle {
         .map(parsePaintToString)
         .filter((s): s is string => s !== null);
       if (parsed.length > 0) {
-        style.background = parsed[parsed.length - 1]; // top-most fill
+        const topFillOriginalIdx = (node.fills as Paint[])
+          .map((f, i) => ({ f, i }))
+          .filter(({ f }) => f.visible !== false)
+          .pop()?.i ?? 0;
+        const v = await getFillVar(node, topFillOriginalIdx);
+        style.background = withVar(parsed[parsed.length - 1], v);
       }
     }
   }
 
   // Border from strokes
   if ("strokes" in node && node.strokes.length > 0) {
-    const stroke = node.strokes.find((s) => s.visible !== false);
-    if (stroke && stroke.type === "SOLID") {
-      const { r, g, b } = stroke.color;
-      const color = rgbaString(r, g, b, stroke.opacity ?? 1);
-      const weight =
-        "strokeWeight" in node && node.strokeWeight !== figma.mixed
-          ? (node.strokeWeight as number)
-          : 1;
-      style.border = `${weight}px solid ${color}`;
+    const strokeIdx = node.strokes.findIndex((s) => s.visible !== false);
+    if (strokeIdx !== -1) {
+      const stroke = node.strokes[strokeIdx];
+      if (stroke.type === "SOLID") {
+        const { r, g, b } = stroke.color;
+        const color = rgbaString(r, g, b, stroke.opacity ?? 1);
+        const weight =
+          "strokeWeight" in node && node.strokeWeight !== figma.mixed
+            ? (node.strokeWeight as number)
+            : 1;
+        const strokeColorVar = await getStrokeVar(node, strokeIdx);
+        const strokeWeightVar = await getScalarVar(node, "strokeWeight");
+        const vars = [strokeColorVar, strokeWeightVar].filter(Boolean).join(", ");
+        style.border = withVar(`${weight}px solid ${color}`, vars || null);
+      }
     }
   }
 
@@ -294,13 +384,13 @@ function extractStyle(node: SceneNode): VisualStyle {
     const layerBlur = node.effects.find(
       (e): e is BlurEffect => e.type === "LAYER_BLUR" && (e.visible ?? true),
     );
-    if (layerBlur) style.blur = layerBlur.radius;
+    if (layerBlur) style.blur = `${layerBlur.radius}px`;
 
     const bgBlur = node.effects.find(
       (e): e is BlurEffect =>
         e.type === "BACKGROUND_BLUR" && (e.visible ?? true),
     );
-    if (bgBlur) style.backdropBlur = bgBlur.radius;
+    if (bgBlur) style.backdropBlur = `${bgBlur.radius}px`;
   }
 
   return style;
@@ -310,7 +400,7 @@ function extractStyle(node: SceneNode): VisualStyle {
 // EXTRACT FLEX LAYOUT
 // ─────────────────────────────────────────────────────────────────────────────
 
-function extractFlexLayout(node: SceneNode): FlexLayout | undefined {
+async function extractFlexLayout(node: SceneNode): Promise<FlexLayout | undefined> {
   if (!("layoutMode" in node) || node.layoutMode === "NONE") return undefined;
 
   const n = node as FrameNode;
@@ -328,17 +418,22 @@ function extractFlexLayout(node: SceneNode): FlexLayout | undefined {
     BASELINE: "baseline",
   };
 
+  const gapVar = await getScalarVar(node, "itemSpacing");
+  const ptVar = await getScalarVar(node, "paddingTop");
+  const prVar = await getScalarVar(node, "paddingRight");
+  const pbVar = await getScalarVar(node, "paddingBottom");
+  const plVar = await getScalarVar(node, "paddingLeft");
+
   return {
     direction: n.layoutMode === "HORIZONTAL" ? "row" : "column",
-    gap: n.itemSpacing,
+    gap: withVar(String(n.itemSpacing), gapVar),
     padding: {
-      top: n.paddingTop,
-      right: n.paddingRight,
-      bottom: n.paddingBottom,
-      left: n.paddingLeft,
+      top: withVar(String(n.paddingTop), ptVar),
+      right: withVar(String(n.paddingRight), prVar),
+      bottom: withVar(String(n.paddingBottom), pbVar),
+      left: withVar(String(n.paddingLeft), plVar),
     },
-    justifyContent:
-      justifyMap[n.primaryAxisAlignItems] ?? n.primaryAxisAlignItems,
+    justifyContent: justifyMap[n.primaryAxisAlignItems] ?? n.primaryAxisAlignItems,
     alignItems: alignMap[n.counterAxisAlignItems] ?? n.counterAxisAlignItems,
     wrap: n.layoutWrap === "WRAP",
     overflow: n.clipsContent ? "hidden" : "visible",
@@ -349,7 +444,7 @@ function extractFlexLayout(node: SceneNode): FlexLayout | undefined {
 // EXTRACT TEXT CONTENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-function extractTextContent(node: TextNode): TextContent {
+async function extractTextContent(node: TextNode): Promise<TextContent> {
   const raw = node.characters;
   const truncated = raw.length > 100 ? raw.slice(0, 100) + "…" : raw;
 
@@ -365,7 +460,6 @@ function extractTextContent(node: TextNode): TextContent {
     Black: 900,
   };
 
-  // Font
   const fontName =
     node.fontName !== figma.mixed
       ? (node.fontName as FontName)
@@ -378,12 +472,15 @@ function extractTextContent(node: TextNode): TextContent {
   let color = "#000000";
   if (node.fills !== figma.mixed) {
     const fills = node.fills as Paint[];
-    const solidFill = fills.find(
-      (f) => f.visible !== false && f.type === "SOLID",
-    ) as SolidPaint | undefined;
-    if (solidFill) {
+    const solidFillIdx = fills.findIndex(
+      (f) => f.visible !== false && f.type === "SOLID"
+    );
+    if (solidFillIdx !== -1) {
+      const solidFill = fills[solidFillIdx] as SolidPaint;
       const { r, g, b } = solidFill.color;
-      color = rgbaString(r, g, b, solidFill.opacity ?? 1);
+      const colorValue = rgbaString(r, g, b, solidFill.opacity ?? 1);
+      const colorVar = await getFillVar(node, solidFillIdx);
+      color = withVar(colorValue, colorVar);
     }
   }
 
@@ -391,9 +488,11 @@ function extractTextContent(node: TextNode): TextContent {
   let lineHeight: string | undefined;
   if (node.lineHeight !== figma.mixed) {
     const lh = node.lineHeight as LineHeight;
-    if (lh.unit === "PIXELS") lineHeight = `${lh.value}px`;
-    else if (lh.unit === "PERCENT") lineHeight = `${round2(lh.value / 100)}`;
-    else lineHeight = "normal";
+    let lhValue = "normal";
+    if (lh.unit === "PIXELS") lhValue = `${lh.value}px`;
+    else if (lh.unit === "PERCENT") lhValue = `${round2(lh.value / 100)}`;
+    const lhVar = await getScalarVar(node, "lineHeight");
+    lineHeight = withVar(lhValue, lhVar);
   }
 
   // Letter spacing
@@ -401,8 +500,11 @@ function extractTextContent(node: TextNode): TextContent {
   if (node.letterSpacing !== figma.mixed) {
     const ls = node.letterSpacing as LetterSpacing;
     if (ls.value !== 0) {
-      letterSpacing =
-        ls.unit === "PIXELS" ? `${ls.value}px` : `${round2(ls.value / 100)}em`;
+      const lsValue = ls.unit === "PIXELS"
+        ? `${ls.value}px`
+        : `${round2(ls.value / 100)}em`;
+      const lsVar = await getScalarVar(node, "letterSpacing");
+      letterSpacing = withVar(lsValue, lsVar);
     }
   }
 
@@ -425,15 +527,23 @@ function extractTextContent(node: TextNode): TextContent {
     textTransform = caseMap[node.textCase as string];
   }
 
+  // Font size
+  const fontSizeValue = node.fontSize !== figma.mixed ? (node.fontSize as number) : 14;
+  const fontSizeVar = await getScalarVar(node, "fontSize");
+  const fontSize = withVar(`${fontSizeValue}px`, fontSizeVar);
+
+  // Font family
+  const fontFamilyVar = await getScalarVar(node, "fontFamily");
+  const fontFamily = withVar(fontName.family, fontFamilyVar);
 
   const textStyle: CustomTextStyle = {
-    fontFamily: fontName.family,
-    fontSize: node.fontSize !== figma.mixed ? (node.fontSize as number) : 14,
+    fontFamily,
+    fontSize,
     fontWeight,
     color,
     align: node.textAlignHorizontal?.toLowerCase() ?? "left",
-    fontFeatureSettings: '',
-    fontVariantNumeric: ''
+    fontFeatureSettings: "",
+    fontVariantNumeric: "",
   };
 
   if (isItalic) textStyle.fontStyle = "italic";
@@ -441,46 +551,45 @@ function extractTextContent(node: TextNode): TextContent {
   if (letterSpacing) textStyle.letterSpacing = letterSpacing;
   if (textDecoration) textStyle.textDecoration = textDecoration;
   if (textTransform) textStyle.textTransform = textTransform;
-  // ── font-feature-settings ──────────────────
+
+  // font-feature-settings
   if ("openTypeFeatures" in node) {
     const features = node.openTypeFeatures as Record<OpenTypeFeature, boolean>;
     const entries = Object.entries(features) as [OpenTypeFeature, boolean][];
     const active = entries.filter(([, on]) => on);
     if (active.length > 0) {
       textStyle.fontFeatureSettings = active
-        .map(([tag, on]) => `'${tag.toLowerCase()}' ${on ? 'on' : 'off'}`)
+        .map(([tag, on]) => `'${tag.toLowerCase()}' ${on ? "on" : "off"}`)
         .join(", ");
     }
   }
 
-  // ── font-variant-numeric ───────────────────
+  // font-variant-numeric
   if ("numberCase" in node || "numberSpacing" in node) {
     const variants: string[] = [];
-
     if ("numberCase" in node && node.numberCase !== figma.mixed) {
       const nc = node.numberCase as string;
       if (nc === "LINING_NUMS") variants.push("lining-nums");
       if (nc === "OLDSTYLE_NUMS") variants.push("oldstyle-nums");
     }
-
     if ("numberSpacing" in node && node.numberSpacing !== figma.mixed) {
       const ns = node.numberSpacing as string;
       if (ns === "PROPORTIONAL_NUM") variants.push("proportional-nums");
       if (ns === "TABULAR_NUM") variants.push("tabular-nums");
     }
-
     if (variants.length > 0) {
       textStyle.fontVariantNumeric = variants.join(" ");
     }
   }
+
   return { raw, truncated, style: textStyle };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MAIN: BUILD LAYOUT NODE (recursive)
+// MAIN: BUILD LAYOUT NODE (recursive, async)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildLayoutNode(node: SceneNode): LayoutNode {
+async function buildLayoutNode(node: SceneNode): Promise<LayoutNode> {
   const box: BoundingBox = {
     x: Math.round("x" in node ? node.x : 0),
     y: Math.round("y" in node ? node.y : 0),
@@ -489,8 +598,8 @@ function buildLayoutNode(node: SceneNode): LayoutNode {
   };
 
   const role = inferRole(node);
-  const style = extractStyle(node);
-  const layout = extractFlexLayout(node);
+  const style = await extractStyle(node);
+  const layout = await extractFlexLayout(node);
 
   const result: LayoutNode = {
     id: node.id,
@@ -501,17 +610,16 @@ function buildLayoutNode(node: SceneNode): LayoutNode {
     style,
   };
 
-  // Only add layout if exists (keeps JSON clean)
   if (layout) result.layout = layout;
 
-  // Text content
   if (node.type === "TEXT") {
-    result.content = extractTextContent(node as TextNode);
+    result.content = await extractTextContent(node as TextNode);
   }
 
-  // Recurse children
   if ("children" in node && node.children.length > 0) {
-    result.children = node.children.map((child) => buildLayoutNode(child));
+    result.children = await Promise.all(
+      node.children.map((child) => buildLayoutNode(child))
+    );
   }
 
   return result;
@@ -532,11 +640,11 @@ function countNodes(node: LayoutNode): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ENTRY: extractLayoutSummary
+// ENTRY: extractLayoutSummary (async)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function extractLayoutSummary(node: SceneNode): LayoutSummary {
-  const layoutNode = buildLayoutNode(node);
+export async function extractLayoutSummary(node: SceneNode): Promise<LayoutSummary> {
+  const layoutNode = await buildLayoutNode(node);
   const totalNodes = countNodes(layoutNode);
 
   return {
@@ -550,4 +658,3 @@ export function extractLayoutSummary(node: SceneNode): LayoutSummary {
     layout: layoutNode,
   };
 }
-
