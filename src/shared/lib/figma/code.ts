@@ -2,7 +2,7 @@
 // it will then create that many rectangles on the screen.
 
 import { buildFlatCSS } from "../../../features/css-styles/api/css-style";
-import { extractGroupCSS } from "../../../features/css-styles-structure/api/css-style-structure";
+import { extractGroupCSS, mergeVariableComments } from "../../../features/css-styles-structure/api/css-style-structure";
 import { extractLayoutSummary } from "../../../features/json-structure/api/layout-summary";
 import { extractDesignTokens } from "../../../features/variables/api/variable";
 import { COMMAND } from "./command";
@@ -32,7 +32,10 @@ const requiresSelection: Set<string> = new Set([
 const commandHandlers: Record<string, CommandHandler> = {
   [COMMAND.get_variables]: () => extractDesignTokens(),
   [COMMAND.get_json_structure]: (target) => Promise.resolve(extractLayoutSummary(target!)),
-  [COMMAND.get_css_structure]: (target) => extractGroupCSS(target!),
+  [COMMAND.get_css_structure]: async (target) => {
+    const result = await extractGroupCSS(target!);
+    return mergeVariableComments(result);
+  },
   [COMMAND.get_css_layout]: (target) => buildFlatCSS(target!),
 };
 

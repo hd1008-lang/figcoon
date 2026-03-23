@@ -17,7 +17,7 @@ function rgbaColor(r: number, g: number, b: number, a: number): string {
 }
 
 function formatNumber(n: number): string {
-
+  
   const fixed = +n.toFixed(2);
   return fixed % 1 === 0 ? `${fixed}` : `${fixed}`;
 }
@@ -54,7 +54,7 @@ function parsePaintValue(paint: Paint): string | null {
     return `radial-gradient(${stops})`;
   }
 
-  if (paint.type === "IMAGE") return null; // skip image fill
+  if (paint.type === "IMAGE") return null;
 
   return null;
 }
@@ -80,33 +80,105 @@ function getFontWeight(style: string): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// VARIABLE RESOLUTION HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve a VariableAlias (or array of aliases) to a variable name string.
+ * Returns e.g. "main-color" or null if no variable found.
+ */
+async function resolveVariableName(
+  alias: VariableAlias | VariableAlias[] | undefined
+): Promise<string | null> {
+  if (!alias) return null;
+
+  // Some fields (fills, strokes) return an array of aliases
+  const id = Array.isArray(alias) ? alias[0]?.id : (alias as VariableAlias).id;
+  if (!id) return null;
+
+  const variable = await figma.variables.getVariableByIdAsync(id);
+  return variable ? variable.name : null;
+}
+
+/**
+ * Get the variable name bound to the color of fills[fillIndex].
+ * Checks both node-level boundVariables.fills and paint-level boundVariables.color.
+ */
+async function getFillVariableName(
+  node: SceneNode,
+  fillIndex: number
+): Promise<string | null> {
+  if (!("boundVariables" in node) || !node.boundVariables) return null;
+
+  // Node-level: boundVariables.fills is an array of aliases (one per fill layer)
+  const fillsAliases = (node.boundVariables as Record<string, VariableAlias | VariableAlias[]>)["fills"];
+  if (Array.isArray(fillsAliases) && fillsAliases[fillIndex]) {
+    const name = await resolveVariableName(fillsAliases[fillIndex]);
+    if (name) return name;
+  }
+
+  // Paint-level: fills[i].boundVariables.color
+  if ("fills" in node && node.fills !== figma.mixed) {
+    const paint = (node.fills as Paint[])[fillIndex];
+    const paintBoundVars = (paint as Paint & { boundVariables?: Record<string, VariableAlias> }).boundVariables;
+    if (paintBoundVars?.color) {
+      return resolveVariableName(paintBoundVars.color);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the variable name bound to a simple numeric/scalar field on a node.
+ * e.g. field = "opacity", "width", "height", "cornerRadius", "itemSpacing" etc.
+ */
+async function getScalarVariableName(
+  node: SceneNode,
+  field: string
+): Promise<string | null> {
+  if (!("boundVariables" in node) || !node.boundVariables) return null;
+  const alias = (node.boundVariables as Record<string, VariableAlias | VariableAlias[]>)[field];
+  return resolveVariableName(alias as VariableAlias | undefined);
+}
+
+/**
+ * Append ` /* varName *\/` suffix to a CSS line if a variable name is found.
+ */
+function withVarComment(cssLine: string, varName: string | null): string {
+  if (!varName) return cssLine;
+  return `${cssLine} /* ${varName} */`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BUILD CSS LINES FOR A SINGLE NODE
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildNodeCSSLines(node: SceneNode): string[] {
+async function buildNodeCSSLines(node: SceneNode): Promise<string[]> {
   const lines: string[] = [];
 
-  const add = (prop: string, value: string) => {
-    lines.push(`${prop}: ${value};`);
-  };
+  const add = (line: string) => lines.push(line);
+  const prop = (p: string, v: string) => `${p}: ${v};`;
 
   // ── Position ──────────────────────────────────
-  add("position", "absolute");
+  add(prop("position", "absolute"));
 
   if ("width" in node) {
-    add("width", px(node.width));
-    add("height", px(node.height));
+    const wVar = await getScalarVariableName(node, "width");
+    const hVar = await getScalarVariableName(node, "height");
+    add(withVarComment(prop("width", px(node.width)), wVar));
+    add(withVarComment(prop("height", px(node.height)), hVar));
   }
 
-  // Absolute position relative to parent
   if ("x" in node) {
-    add("left", px(node.x));
-    add("top", px(node.y));
+    add(prop("left", px(node.x)));
+    add(prop("top", px(node.y)));
   }
 
   // ── Opacity ───────────────────────────────────
   if ("opacity" in node && node.opacity < 1) {
-    add("opacity", formatNumber(node.opacity));
+    const opVar = await getScalarVariableName(node, "opacity");
+    add(withVarComment(prop("opacity", formatNumber(node.opacity)), opVar));
   }
 
   // ── Border Radius ─────────────────────────────
@@ -115,13 +187,22 @@ function buildNodeCSSLines(node: SceneNode): string[] {
       node.cornerRadius !== figma.mixed &&
       (node.cornerRadius as number) > 0
     ) {
-      add("border-radius", px(node.cornerRadius as number));
+      const crVar = await getScalarVariableName(node, "cornerRadius");
+      add(withVarComment(prop("border-radius", px(node.cornerRadius as number)), crVar));
     } else if (node.cornerRadius === figma.mixed) {
       const n = node as RectangleNode;
-      add(
+      const tlVar = await getScalarVariableName(node, "topLeftRadius");
+      const trVar = await getScalarVariableName(node, "topRightRadius");
+      const brVar = await getScalarVariableName(node, "bottomRightRadius");
+      const blVar = await getScalarVariableName(node, "bottomLeftRadius");
+
+      let radiusLine = prop(
         "border-radius",
-        `${px(n.topLeftRadius)} ${px(n.topRightRadius)} ${px(n.bottomRightRadius)} ${px(n.bottomLeftRadius)}`,
+        `${px(n.topLeftRadius)} ${px(n.topRightRadius)} ${px(n.bottomRightRadius)} ${px(n.bottomLeftRadius)}`
       );
+      const radVars = [tlVar, trVar, brVar, blVar].filter(Boolean);
+      if (radVars.length > 0) radiusLine += ` /* ${radVars.join(", ")} */`;
+      add(radiusLine);
     }
   }
 
@@ -129,20 +210,39 @@ function buildNodeCSSLines(node: SceneNode): string[] {
   if ("fills" in node && node.fills !== figma.mixed) {
     const fills = (node.fills as Paint[]).filter((f) => f.visible !== false);
     if (fills.length > 0) {
-      // Multiple fills → use background shorthand (bottom to top = CSS order reversed)
       const parsed = fills
         .map(parsePaintValue)
         .filter((v): v is string => v !== null);
 
       if (parsed.length === 1) {
-        const fill = fills[0];
-        if (fill.type === "SOLID") {
-          add("background", parsed[0]);
-        } else {
-          add("background", parsed[0]);
-        }
+        // Get variable for the first (only) fill
+        const originalIndex = (node.fills as Paint[]).findIndex((f) => f.visible !== false);
+        const varName = await getFillVariableName(node, originalIndex);
+        add(withVarComment(prop("background", parsed[0]), varName));
       } else if (parsed.length > 1) {
-        add("background", parsed.reverse().join(", "));
+        // Multiple fills: collect variables for each visible fill
+        // let originalIdx = -1;
+        const parsedWithVars: Array<{ value: string; varName: string | null }> = [];
+
+        for (let i = 0; i < (node.fills as Paint[]).length; i++) {
+          const fill = (node.fills as Paint[])[i];
+          if (fill.visible === false) continue;
+          const value = parsePaintValue(fill);
+          if (value === null) continue;
+          const varName = await getFillVariableName(node, i);
+          parsedWithVars.push({ value, varName });
+        }
+
+        // CSS stacks fills bottom-to-top (reversed), but variables comment stays readable
+        const reversedValues = parsedWithVars.map((p) => p.value).reverse().join(", ");
+        const varNames = parsedWithVars
+          .map((p) => p.varName)
+          .filter(Boolean)
+          .join(", ");
+
+        let bgLine = prop("background", reversedValues);
+        if (varNames) bgLine += ` /* ${varNames} */`;
+        add(bgLine);
       }
     }
   }
@@ -157,7 +257,29 @@ function buildNodeCSSLines(node: SceneNode): string[] {
         "strokeWeight" in node && node.strokeWeight !== figma.mixed
           ? (node.strokeWeight as number)
           : 1;
-      add("border", `${px(weight)} solid ${color}`);
+
+      // Try to get variable from stroke color binding
+      const strokeIdx = node.strokes.findIndex((s) => s.visible !== false);
+      let strokeVarName: string | null = null;
+      if ("boundVariables" in node && node.boundVariables) {
+        const strokesAliases = (node.boundVariables as Record<string, VariableAlias | VariableAlias[]>)["strokes"];
+        if (Array.isArray(strokesAliases) && strokesAliases[strokeIdx]) {
+          strokeVarName = await resolveVariableName(strokesAliases[strokeIdx]);
+        }
+        if (!strokeVarName) {
+          const paintBoundVars = (stroke as Paint & { boundVariables?: Record<string, VariableAlias> }).boundVariables;
+          if (paintBoundVars?.color) {
+            strokeVarName = await resolveVariableName(paintBoundVars.color);
+          }
+        }
+      }
+      // Also check strokeWeight variable
+      const weightVar = await getScalarVariableName(node, "strokeWeight");
+
+      let borderLine = prop("border", `${px(weight)} solid ${color}`);
+      const borderVars = [strokeVarName, weightVar].filter(Boolean);
+      if (borderVars.length > 0) borderLine += ` /* ${borderVars.join(", ")} */`;
+      add(borderLine);
     }
   }
 
@@ -182,43 +304,52 @@ function buildNodeCSSLines(node: SceneNode): string[] {
         return `inset ${px(s.offset.x)} ${px(s.offset.y)} ${px(s.radius)} ${rgbaColor(r, g, b, a)}`;
       }),
     ];
-    if (shadows.length > 0) add("box-shadow", shadows.join(", "));
+    if (shadows.length > 0) add(prop("box-shadow", shadows.join(", ")));
 
     const layerBlur = node.effects.find(
       (e): e is BlurEffect => e.type === "LAYER_BLUR" && (e.visible ?? true),
     );
-    if (layerBlur) add("filter", `blur(${px(layerBlur.radius)})`);
+    if (layerBlur) add(prop("filter", `blur(${px(layerBlur.radius)})`));
 
     const bgBlur = node.effects.find(
       (e): e is BlurEffect =>
         e.type === "BACKGROUND_BLUR" && (e.visible ?? true),
     );
-    if (bgBlur) add("backdrop-filter", `blur(${px(bgBlur.radius)})`);
+    if (bgBlur) add(prop("backdrop-filter", `blur(${px(bgBlur.radius)})`));
   }
 
   // ── Auto Layout → Flexbox ─────────────────────
   if ("layoutMode" in node && node.layoutMode !== "NONE") {
     const n = node as FrameNode;
 
-    add("display", "flex");
-    add("flex-direction", n.layoutMode === "HORIZONTAL" ? "row" : "column");
+    add(prop("display", "flex"));
+    add(prop("flex-direction", n.layoutMode === "HORIZONTAL" ? "row" : "column"));
 
-    if (n.layoutWrap === "WRAP") add("flex-wrap", "wrap");
+    if (n.layoutWrap === "WRAP") add(prop("flex-wrap", "wrap"));
 
-    if (n.itemSpacing > 0) add("gap", px(n.itemSpacing));
+    if (n.itemSpacing > 0) {
+      const gapVar = await getScalarVariableName(node, "itemSpacing");
+      add(withVarComment(prop("gap", px(n.itemSpacing)), gapVar));
+    }
 
-    const {
-      paddingTop: pt,
-      paddingRight: pr,
-      paddingBottom: pb,
-      paddingLeft: pl,
-    } = n;
+    const { paddingTop: pt, paddingRight: pr, paddingBottom: pb, paddingLeft: pl } = n;
     if (pt || pr || pb || pl) {
+      const ptVar = await getScalarVariableName(node, "paddingTop");
+      const prVar = await getScalarVariableName(node, "paddingRight");
+      const pbVar = await getScalarVariableName(node, "paddingBottom");
+      const plVar = await getScalarVariableName(node, "paddingLeft");
+
+      let paddingLine: string;
       if (pt === pr && pr === pb && pb === pl) {
-        add("padding", px(pt));
+        paddingLine = prop("padding", px(pt));
+        const padVar = ptVar || prVar || pbVar || plVar;
+        paddingLine = withVarComment(paddingLine, padVar);
       } else {
-        add("padding", `${px(pt)} ${px(pr)} ${px(pb)} ${px(pl)}`);
+        paddingLine = prop("padding", `${px(pt)} ${px(pr)} ${px(pb)} ${px(pl)}`);
+        const padVars = [ptVar, prVar, pbVar, plVar].filter(Boolean);
+        if (padVars.length > 0) paddingLine += ` /* ${padVars.join(", ")} */`;
       }
+      add(paddingLine);
     }
 
     const justifyMap: Record<string, string> = {
@@ -236,10 +367,10 @@ function buildNodeCSSLines(node: SceneNode): string[] {
 
     const jc = justifyMap[n.primaryAxisAlignItems];
     const ai = alignMap[n.counterAxisAlignItems];
-    if (jc) add("justify-content", jc);
-    if (ai) add("align-items", ai);
+    if (jc) add(prop("justify-content", jc));
+    if (ai) add(prop("align-items", ai));
 
-    if (n.clipsContent) add("overflow", "hidden");
+    if (n.clipsContent) add(prop("overflow", "hidden"));
   }
 
   // ── Typography (TEXT only) ────────────────────
@@ -252,43 +383,50 @@ function buildNodeCSSLines(node: SceneNode): string[] {
       const entries = Object.entries(features) as [OpenTypeFeature, boolean][];
       if (entries.length > 0) {
         add(
-          "font-feature-settings",
-          entries.map(([tag, on]) => `'${tag.toLocaleLowerCase()}' ${on ? 'on' : 'off'}`).join(", "),
+          prop(
+            "font-feature-settings",
+            entries.map(([tag, on]) => `'${tag.toLocaleLowerCase()}' ${on ? "on" : "off"}`).join(", ")
+          )
         );
       }
-      add("font-family", `'${fn.family}'`);
-      add(
-        "font-style",
-        fn.style.toLowerCase().includes("italic") ? "italic" : "normal",
-      );
-      add("font-weight", String(getFontWeight(fn.style)));
+
+      const familyVar = await getScalarVariableName(node, "fontFamily");
+      add(withVarComment(prop("font-family", `'${fn.family}'`), familyVar));
+      add(prop("font-style", fn.style.toLowerCase().includes("italic") ? "italic" : "normal"));
+      add(prop("font-weight", String(getFontWeight(fn.style))));
     }
 
     if (t.fontSize !== figma.mixed) {
-      add("font-size", px(t.fontSize as number));
+      const fsVar = await getScalarVariableName(node, "fontSize");
+      add(withVarComment(prop("font-size", px(t.fontSize as number)), fsVar));
     }
 
     if (t.lineHeight !== figma.mixed) {
       const lh = t.lineHeight as LineHeight;
-      if (lh.unit === "PIXELS") add("line-height", px(lh.value));
+      const lhVar = await getScalarVariableName(node, "lineHeight");
+      if (lh.unit === "PIXELS") add(withVarComment(prop("line-height", px(lh.value)), lhVar));
       else if (lh.unit === "PERCENT")
-        add("line-height", formatNumber(lh.value / 100));
-      // AUTO → skip (browser default)
+        add(withVarComment(prop("line-height", formatNumber(lh.value / 100)), lhVar));
     }
 
     if (t.letterSpacing !== figma.mixed) {
       const ls = t.letterSpacing as LetterSpacing;
       if (ls.value !== 0) {
+        const lsVar = await getScalarVariableName(node, "letterSpacing");
         add(
-          "letter-spacing",
-          ls.unit === "PIXELS"
-            ? px(ls.value)
-            : `${formatNumber(ls.value / 100)}em`,
+          withVarComment(
+            prop(
+              "letter-spacing",
+              ls.unit === "PIXELS"
+                ? px(ls.value)
+                : `${formatNumber(ls.value / 100)}em`
+            ),
+            lsVar
+          )
         );
       }
     }
 
-    // Text node inside auto layout → flex for vertical centering
     if (!("layoutMode" in node)) {
       const parentHasLayout =
         node.parent &&
@@ -296,19 +434,18 @@ function buildNodeCSSLines(node: SceneNode): string[] {
         (node.parent as FrameNode).layoutMode !== "NONE";
 
       if (!parentHasLayout) {
-        add("display", "flex");
-        add("align-items", "center");
+        add(prop("display", "flex"));
+        add(prop("align-items", "center"));
       }
     }
 
     if (t.textAlignHorizontal) {
-      add("text-align", t.textAlignHorizontal.toLowerCase());
+      add(prop("text-align", t.textAlignHorizontal.toLowerCase()));
     }
 
     if (t.textDecoration !== figma.mixed) {
-      if (t.textDecoration === "UNDERLINE") add("text-decoration", "underline");
-      else if (t.textDecoration === "STRIKETHROUGH")
-        add("text-decoration", "line-through");
+      if (t.textDecoration === "UNDERLINE") add(prop("text-decoration", "underline"));
+      else if (t.textDecoration === "STRIKETHROUGH") add(prop("text-decoration", "line-through"));
     }
 
     if (t.textCase !== figma.mixed) {
@@ -318,18 +455,20 @@ function buildNodeCSSLines(node: SceneNode): string[] {
         TITLE: "capitalize",
       };
       const tc = caseMap[t.textCase as string];
-      if (tc) add("text-transform", tc);
+      if (tc) add(prop("text-transform", tc));
     }
 
     // Text color
     if (t.fills !== figma.mixed) {
       const fills = t.fills as Paint[];
-      const solidFill = fills.find(
+      const solidFillIdx = fills.findIndex(
         (f): f is SolidPaint => f.type === "SOLID" && f.visible !== false,
       );
-      if (solidFill) {
+      if (solidFillIdx !== -1) {
+        const solidFill = fills[solidFillIdx] as SolidPaint;
         const { r, g, b } = solidFill.color;
-        add("color", rgbaColor(r, g, b, solidFill.opacity ?? 1));
+        const colorVar = await getFillVariableName(node, solidFillIdx);
+        add(withVarComment(prop("color", rgbaColor(r, g, b, solidFill.opacity ?? 1)), colorVar));
       }
     }
   }
@@ -359,9 +498,9 @@ export async function buildFlatCSS(root: SceneNode): Promise<string> {
   const blocks: string[] = [];
 
   async function traverse(node: SceneNode): Promise<void> {
-    const cssLines = buildNodeCSSLines(node);
+    const cssLines = await buildNodeCSSLines(node);
 
-    // Color style comment (e.g. /* White */)
+    // Color style comment (e.g. /* White */) - insert before color: line
     if (node.type === "TEXT") {
       const styleName = await getColorStyleName(node);
       if (styleName) {
@@ -372,14 +511,9 @@ export async function buildFlatCSS(root: SceneNode): Promise<string> {
       }
     }
 
-    // Format block:
-    // /* Node Name */
-    // prop: value;
-    // prop: value;
     const propLines = cssLines.join("\n");
     blocks.push(`/* ${node.name} */\n${propLines}`);
 
-    // Recurse
     if ("children" in node) {
       for (const child of node.children) {
         await traverse(child);
